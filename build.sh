@@ -357,6 +357,27 @@ if [ -n "$GLSLANG" ]; then
         XFMA_NAMES+=("$name")
     done
 fi
+# Build the first Vulkan 1.2 compatibility shader independently. This is
+# deliberately not wired into the runtime yet: the device-selection and
+# pipeline paths must be ported and validated before enabling it on a GPU.
+VK12_Q4K=""
+if [ -n "$GLSLANG" ]; then
+    if glslangValidator -V --target-env vulkan1.2 \
+        src/llm/shaders/vulkan12/q4k_matvec.comp \
+        -o "$SPV/q4k_matvec_v12.spv" >/dev/null 2>&1; then
+        if command -v spirv-val >/dev/null 2>&1 &&
+            ! spirv-val --target-env vulkan1.2 "$SPV/q4k_matvec_v12.spv" >/dev/null 2>&1; then
+            echo "note: Vulkan 1.2 Q4_K fallback shader failed SPIR-V validation"
+        else
+            VK12_Q4K=yes
+            echo "Vulkan 1.2 Q4_K fallback shader: compiled"
+        fi
+    else
+        echo "note: Vulkan 1.2 Q4_K fallback shader did not compile"
+    fi
+    rm -f "$SPV/q4k_matvec_v12.spv"
+fi
+
 # the table of the variants (gpu_fma.c), rewritten only when it changes
 if [ -n "$GLSLANG" ]; then
     {
