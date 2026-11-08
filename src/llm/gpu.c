@@ -3119,6 +3119,11 @@ int janas_gpu_dense_mm(struct janas_gpu *g, int bf16, const void *w,
     return janas_gpu_finish(g, &waited) == 0 ? 0 : -1;
 }
 
+int janas_gpu_has_bf16(const struct janas_gpu *g)
+{
+    return g && !g->compat12 && g->pipe_b16 != VK_NULL_HANDLE;
+}
+
 int janas_gpu_bf16_mv(struct janas_gpu *g, const uint16_t *w, const float *x,
                       float *y, size_t rows, size_t cols, size_t n, float scale)
 {
