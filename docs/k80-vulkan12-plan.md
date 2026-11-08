@@ -1,77 +1,44 @@
-# Tesla K80 / Vulkan 1.2 compatibility plan
+# Tesla K80 / Vulkan 1.2 compatibility
 
-Status: investigation branch; no K80 execution backend is enabled by this change.
+Status: experimental restricted runtime path added; not yet hardware-validated.
 
-## Why this work exists
+## Supported scope
 
-The current GPU backend in `src/llm/gpu.c` rejects physical devices whose reported
-Vulkan API version is below 1.3. Its device selection also requires buffer device
-addresses, shader integer dot product, and subgroup ballot, arithmetic, clustered,
-and shuffle operations in compute shaders. The shader build currently targets
-Vulkan 1.3. Consequently, a Vulkan 1.2 device is rejected before the engine can
-establish which independent operations it can support.
+The Vulkan 1.2 path is deliberately limited to **Q4_K matrix-vector products with
+one activation vector**. It uses the separate
+`src/llm/shaders/vulkan12/q4k_matvec.comp` shader, which replaces the integer
+dot-product instruction with explicit signed-byte unpacking and scalar integer
+multiplication. The build generates a Vulkan 1.2 SPIR-V C array and validates
+the SPIR-V when `spirv-val` is installed.
 
-The Tesla K80 is a Kepler GK210 device. Its hardware generation does not provide
-the modern integer-dot-product instruction path expected by the existing shader
-backend. A Vulkan 1.2 API version alone does not imply that the existing shaders
-can run. The compatibility backend must use a separately validated shader set
-and capability requirements.
+The device-selection path queries only Vulkan 1.1 and 1.2 structures for a
+Vulkan 1.2 physical device. It requires buffer device address, compute queue,
+the subgroup operations checked by the backend, and a fixed subgroup size of
+32. The Vulkan 1.3 path remains separate and retains its existing pipeline
+initialization.
 
-## Change in this branch
+For Vulkan 1.2 devices, Janas creates only the Q4_K single-vector pipeline.
+Other quantized formats, multi-vector operations, expert execution, dense
+matmul, and whole-token GPU execution remain on the CPU. Startup self-check
+compares Q4_K results bit-for-bit with the CPU; a mismatch disables Q4_K GPU
+dispatch for that device/driver combination.
 
-`tools/vkcheck.c` now distinguishes a Vulkan 1.2 device from a device below
-Vulkan 1.2 before it queries Vulkan 1.3 property and feature structures. It
-labels Vulkan 1.2 as a compatibility candidate while explicitly stating that
-the current Janas GPU backend is not supported yet.
+## Validation on the Tesla K80
 
-This is diagnostic-only. It does not change production device selection,
-enable a Vulkan 1.2 backend, or claim that a K80 can execute Janas GPU shaders.
+Run on the target host:
 
-## Required implementation stages
+```bash
+CC=gcc-13 HOSTCC=gcc-13 ./build.sh release clean-build
+./bin/x86_64-linux/vkcheck
+./bin/x86_64-linux/test_quant
+JANAS_GPU_SELFCHECK=2 JANAS_GPU_VERBOSE=1 ./bin/x86_64-linux/gpu_check
+```
 
-1. **Collect a real device report.** Run `vkcheck` on the target host and retain
-   `vulkaninfo --summary`, driver version, physical-device properties, extension
-   list, queue families, memory heaps/types, and subgroup properties.
-2. **Define backend capability profiles.** Keep the current Vulkan 1.3 profile
-   unchanged. Define a separate Vulkan 1.2 profile based on queried feature
-   structures and extensions. Do not infer support from the GPU marketing name.
-3. **Audit runtime API usage.** Inventory every Vulkan 1.3 core function,
-   structure, feature, and extension used by `gpu.c`, `gpu_impl.h`, token
-   execution, and memory management. Resolve each dependency through Vulkan
-   1.2 core or an explicitly enabled extension, or mark the operation
-   unsupported.
-4. **Audit shader requirements.** Enumerate uses of integer dot product,
-   subgroup arithmetic/clustered/shuffle, subgroup-size control, 64-bit
-   arithmetic, and other optional GLSL/SPIR-V capabilities. Compile a distinct
-   Vulkan 1.2 shader set; do not simply lower `--target-env`.
-5. **Implement scalar/subgroup fallbacks.** For each required operation, add a
-   portable shader implementation only where it is correct and benchmarkable.
-   Preserve CPU fallback for unsupported operations.
-6. **Validate numerical behavior.** Compare every GPU kernel against its CPU
-   reference over boundary dimensions, quantization formats, non-aligned row
-   counts, and randomized inputs. Retain bit-exact guarantees where promised.
-7. **Benchmark before enabling by default.** Measure transfer, dispatch,
-   synchronization, prompt processing, and token generation separately.
-   Enable a K80 path only when it is correct and faster than CPU for the
-   relevant workload.
+The `gpu_check` run must show the K80 selected and Q4_K results matching the
+CPU. If the self-check rejects Q4_K, GPU dispatch remains disabled and the
+CPU path continues to work. Run a small Q4_K model only after the numerical
+check passes. Record the two K80 Vulkan physical devices separately and
+benchmark token generation against CPU-only execution before widening scope.
 
-## Important K80 constraints
-
-- Treat the two GK210 GPUs on a K80 board as two independent Vulkan physical
-  devices unless the driver explicitly exposes otherwise. Do not assume unified
-  memory or automatic pooling of the two 12-GB memory banks.
-- Do not assume subgroup width, subgroup operations, buffer device address,
-  external host-memory import, or integer-dot-product support. Query each.
-- Do not require external host-memory import for a discrete GPU if a device-local
-  staging/copy path is implemented.
-- A Vulkan API version is not a proxy for shader feature support.
-- Keep the CPU implementation as the correctness oracle and reliable fallback.
-
-## Initial acceptance criteria
-
-- `vkcheck` runs without querying Vulkan 1.3 structures on a Vulkan 1.2 device.
-- The report clearly separates “Vulkan 1.2 candidate” from “Janas backend
-  supported”.
-- Existing Vulkan 1.3 devices retain the same acceptance decisions and checks.
-- The production engine remains CPU-only on the K80 until the dedicated backend
-  passes kernel correctness and performance tests.
+This is experimental. A successful compile or device probe is not proof of
+working inference. Keep the CPU implementation as the fallback.
