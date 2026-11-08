@@ -262,7 +262,8 @@ static void examine(VkPhysicalDevice pd, int index, struct dev *d)
             printf("  compute queue: %s\n", yes(compute_queue));
             printf("  external host memory extension: %s (optional for "
                    "discrete GPUs)\n", yes(d->host_import));
-            printf("  Existing Janas GPU backend: not supported yet\n");
+            printf("  Janas-LLM runtime: restricted Q4_K matvec path; "
+                   "other GPU operations remain on CPU\n");
         } else {
             snprintf(d->why, sizeof(d->why),
                      "its driver offers Vulkan below 1.2");
