@@ -357,25 +357,35 @@ if [ -n "$GLSLANG" ]; then
         XFMA_NAMES+=("$name")
     done
 fi
-# Build the first Vulkan 1.2 compatibility shader independently. This is
-# deliberately not wired into the runtime yet: the device-selection and
-# pipeline paths must be ported and validated before enabling it on a GPU.
+# Vulkan 1.2 Q4_K fallback: compile for SPIR-V 1.5 and generate the C
+# array consumed by gpu.c. Its startup CPU/GPU self-check disables Q4_K if
+# this driver's floating-point results are not bit-identical.
 VK12_Q4K=""
 if [ -n "$GLSLANG" ]; then
-    if glslangValidator -V --target-env vulkan1.2 \
-        src/llm/shaders/vulkan12/q4k_matvec.comp \
-        -o "$SPV/q4k_matvec_v12.spv" >/dev/null 2>&1; then
-        if command -v spirv-val >/dev/null 2>&1 &&
-            ! spirv-val --target-env vulkan1.2 "$SPV/q4k_matvec_v12.spv" >/dev/null 2>&1; then
-            echo "note: Vulkan 1.2 Q4_K fallback shader failed SPIR-V validation"
-        else
+    vk12_comp=src/llm/shaders/vulkan12/q4k_matvec.comp
+    vk12_spv="$SPV/q4k_matvec_v12.spv"
+    vk12_hdr="$SPV/q4k_matvec_v12.h"
+    if [ ! -f "$vk12_hdr" ] || [ "$vk12_comp" -nt "$vk12_hdr" ] ||
+        [ "$SPV_FMA" -nt "$vk12_hdr" ]; then
+        if glslangValidator -V --target-env vulkan1.2 "$vk12_comp" \
+            -o "$vk12_spv" >/dev/null 2>&1 &&
+            { ! command -v spirv-val >/dev/null 2>&1 ||
+              spirv-val --target-env vulkan1.2 "$vk12_spv" >/dev/null 2>&1; } &&
+            "$SPV_FMA" "$vk12_spv" janas_spv_q4k_matvec_v12 "$vk12_hdr"; then
             VK12_Q4K=yes
-            echo "Vulkan 1.2 Q4_K fallback shader: compiled"
+            echo "Vulkan 1.2 Q4_K fallback shader: compiled and validated"
+        else
+            rm -f "$vk12_hdr"
+            echo "note: Vulkan 1.2 Q4_K fallback shader failed compilation/validation"
         fi
+        rm -f "$vk12_spv"
     else
-        echo "note: Vulkan 1.2 Q4_K fallback shader did not compile"
+        VK12_Q4K=yes
+        echo "Vulkan 1.2 Q4_K fallback shader: ready"
     fi
-    rm -f "$SPV/q4k_matvec_v12.spv"
+fi
+if [ -n "$VK12_Q4K" ]; then
+    CFLAGS+=(-DJANAS_GPU_VK12_Q4K)
 fi
 
 # the table of the variants (gpu_fma.c), rewritten only when it changes
