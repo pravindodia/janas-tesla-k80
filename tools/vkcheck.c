@@ -192,8 +192,84 @@ static void examine(VkPhysicalDevice pd, int index, struct dev *d)
     }
     printf("  Vulkan 1.3 or later: %s\n", yes(v >= VK_API_VERSION_1_3));
     if (v < VK_API_VERSION_1_3) {
-        snprintf(d->why, sizeof(d->why), "its driver offers Vulkan below 1.3");
-        printf("  Janas-LLM would not take it: %s\n", d->why);
+        /* A Vulkan 1.2 device can be inspected with 1.1/1.2 structures.
+           Never chain Vulkan 1.3 structures on this path. This is diagnostic
+           only: production GPU selection still requires Vulkan 1.3. */
+        if (v >= VK_API_VERSION_1_2) {
+            uint32_t ne = 0;
+            vkEnumerateDeviceExtensionProperties(pd, NULL, &ne, NULL);
+            VkExtensionProperties *ext = calloc(ne ? ne : 1, sizeof(*ext));
+            if (!ext)
+                exit(1);
+            vkEnumerateDeviceExtensionProperties(pd, NULL, &ne, ext);
+            int idp_ext = has_ext(ext, ne, "VK_KHR_shader_integer_dot_product");
+            d->host_import =
+                has_ext(ext, ne, VK_EXT_EXTERNAL_MEMORY_HOST_EXTENSION_NAME);
+            free(ext);
+
+            VkPhysicalDeviceVulkan12Properties p12 = {
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES};
+            VkPhysicalDeviceVulkan11Properties p11 = {
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES,
+                .pNext = &p12};
+            VkPhysicalDeviceProperties2 pp2 = {
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+                .pNext = &p11};
+            vkGetPhysicalDeviceProperties2(pd, &pp2);
+
+            VkPhysicalDeviceVulkan12Features f12 = {
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+            VkPhysicalDeviceFeatures2 f2 = {
+                .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+                .pNext = &f12};
+            vkGetPhysicalDeviceFeatures2(pd, &f2);
+            d->bda = f12.bufferDeviceAddress;
+            d->compute_subgroups =
+                (p11.subgroupSupportedStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0;
+            VkSubgroupFeatureFlags ops =
+                d->compute_subgroups ? p11.subgroupSupportedOperations : 0;
+            d->ballot = (ops & VK_SUBGROUP_FEATURE_BALLOT_BIT) != 0;
+            d->arith = (ops & VK_SUBGROUP_FEATURE_ARITHMETIC_BIT) != 0;
+            d->clustered = (ops & VK_SUBGROUP_FEATURE_CLUSTERED_BIT) != 0;
+            d->shuffle = (ops & VK_SUBGROUP_FEATURE_SHUFFLE_BIT) != 0;
+            d->sg_fixed = p11.subgroupSize;
+
+            uint32_t nq = 0;
+            vkGetPhysicalDeviceQueueFamilyProperties(pd, &nq, NULL);
+            VkQueueFamilyProperties qf[64];
+            if (nq > 64)
+                nq = 64;
+            vkGetPhysicalDeviceQueueFamilyProperties(pd, &nq, qf);
+            int compute_queue = 0;
+            for (uint32_t q = 0; q < nq; q++)
+                if (qf[q].queueFlags & VK_QUEUE_COMPUTE_BIT)
+                    compute_queue = 1;
+
+            snprintf(d->why, sizeof(d->why),
+                     "Vulkan 1.2 Q4_K-only runtime candidate; numerical "
+                     "self-check required");
+            printf("  Vulkan 1.2 compatibility candidate: yes\n");
+            printf("  driver: %s %s\n", p12.driverName, p12.driverInfo);
+            printf("  buffer device address: %s\n", yes(d->bda));
+            printf("  shader integer dot product extension: %s\n",
+                   yes(idp_ext));
+            printf("  compute-stage subgroups: %s (size %u)\n",
+                   yes(d->compute_subgroups), d->sg_fixed);
+            printf("  subgroup operations: ballot %s, arithmetic %s, "
+                   "clustered %s, shuffle %s\n",
+                   yes(d->ballot), yes(d->arith), yes(d->clustered),
+                   yes(d->shuffle));
+            printf("  compute queue: %s\n", yes(compute_queue));
+            printf("  external host memory extension: %s (optional for "
+                   "discrete GPUs)\n", yes(d->host_import));
+            printf("  Janas-LLM runtime: restricted Q4_K matvec path; "
+                   "other GPU operations remain on CPU\n");
+        } else {
+            snprintf(d->why, sizeof(d->why),
+                     "its driver offers Vulkan below 1.2");
+            printf("  Vulkan 1.2 compatibility candidate: NO\n");
+        }
+        printf("  Janas-LLM current decision: %s\n", d->why);
         return;
     }
     uint32_t ne = 0;

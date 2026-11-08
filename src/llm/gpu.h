@@ -129,6 +129,8 @@ int janas_gpu_dense_mm(struct janas_gpu *g, int bf16, const void *w,
 int janas_gpu_bf16_mv(struct janas_gpu *g, const uint16_t *w, const float *x,
                       float *y, size_t rows, size_t cols, size_t n,
                       float scale);
+/* Whether this runtime/device profile has a BF16 GPU pipeline. */
+int janas_gpu_has_bf16(const struct janas_gpu *g);
 
 /*
  * Whether the fast prompt is on (unless JANAS_GPU_FAST_PROMPT=0): blocks of

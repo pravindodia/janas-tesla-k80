@@ -236,6 +236,8 @@ static int check_model(const struct janas_gpu *g,
                        const struct janas_gpu_tok_model *md, char *err,
                        size_t len)
 {
+    if (g->compat12)
+        return fail(err, len, "Vulkan 1.2 mode supports Q4_K matvec only");
     uint32_t qd = md->n_head * md->hd, kvd = md->n_kv * md->hd;
     /* feed-forwards may end inside a group of 256 (qwen4exp's 640): their
        down matrices in blocks of 32, checked by janas_gpu_can and

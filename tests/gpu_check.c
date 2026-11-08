@@ -576,6 +576,8 @@ static int check_bf16(struct janas_gpu *g, int *runs, int *refused,
                       uint16_t **w16p, float **bxp, float **byp)
 {
     *runs = *refused = 0;
+    if (!janas_gpu_has_bf16(g))
+        return -1; /* this backend profile intentionally has no BF16 shader */
     if (!janas_bf16_lanes())
         return 0;
     static const size_t bsh[][2] = {{320, 10240}, {10240, 320}, {2560, 2560},
@@ -771,11 +773,14 @@ int main(void)
     float *bx = NULL, *by = NULL;
     int b16_bad = check_bf16(g, &b16_runs, &b16_refused, &w16, &bx, &by);
     printf("  %-9s %-6s %3d products", "bf16",
-           b16_bad || b16_refused ? "WRONG" : "ok", b16_runs);
-    if (b16_bad)
+           b16_bad < 0 ? "SKIP" : b16_bad || b16_refused ? "WRONG" : "ok",
+           b16_runs);
+    if (b16_bad > 0)
         printf(", %d wrong", b16_bad);
     if (b16_refused)
         printf(", %d refused", b16_refused);
+    if (b16_bad < 0)
+        printf(", unsupported by this runtime profile");
     printf("\n");
 
     /* the wrong ones, by shader */
@@ -869,10 +874,12 @@ int main(void)
         }
     }
 
-    int bad = wrong || failed || b16_bad || b16_refused;
+    int bad = wrong || failed || b16_bad > 0 ||
+              (b16_bad >= 0 && b16_refused);
     printf("\nsummary: %d products, %d wrong, %d left to the CPU, %d calls "
-           "failed; bf16 %d, %d wrong, %d refused; %d shader%s at fault\n",
-           runs, wrong, refused, failed, b16_runs, b16_bad, b16_refused,
+           "failed; bf16 %d, %d wrong, %d refused%s; %d shader%s at fault\n",
+           runs, wrong, refused, failed, b16_runs, b16_bad > 0 ? b16_bad : 0,
+           b16_refused, b16_bad < 0 ? " (unsupported; skipped)" : "",
            culprits, culprits == 1 ? "" : "s");
     if (bad)
         printf("Please paste everything above into an issue at "

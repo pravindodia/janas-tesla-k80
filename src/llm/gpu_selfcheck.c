@@ -149,10 +149,10 @@ static int check_one(struct janas_gpu *g, struct janas_pool *pool,
 /* The cache's key for this device and driver, and its file. */
 static void cache_key(const struct janas_gpu *g, char *key, size_t len)
 {
-    snprintf(key, len, "%04x:%04x:%08x:sg%u:%s:%s%s", g->vendor_id,
+    snprintf(key, len, "%04x:%04x:%08x:sg%u:%s:%s%s%s", g->vendor_id,
              g->device_id, g->driver_version, g->sg,
              janas_gpu_shares_host(g) ? "shared" : "copy", JANAS_VERSION,
-             g->xfma ? ":xfma" : "");
+             g->xfma ? ":xfma" : "", g->compat12 ? ":vk12-q4k" : "");
 }
 
 /* What a saved check says: 1 found (switches and types applied). */
@@ -313,10 +313,14 @@ static int run_all(struct janas_gpu *g, struct janas_pool *pool, uint8_t *w,
                    int max)
 {
     int n = 0;
-    for (int k = 0; k < N_KINDS; k++)
+    for (int k = 0; k < N_KINDS; k++) {
+        if (g->compat12 && k != 0)
+            continue;
         for (int c = 0; c < 1 + kinds[k].tail; c++)
             for (int v = 0; v < N_NVS; v++) {
                 size_t cols = c ? MAXC : 512, nv = nvs[v];
+                if (g->compat12 && nv != 1)
+                    continue;
                 int want = !only;
                 for (int i = 0; only && i < n_only; i++)
                     want |= only[i].k == k && only[i].cols == cols &&
@@ -334,6 +338,7 @@ static int run_all(struct janas_gpu *g, struct janas_pool *pool, uint8_t *w,
                     n++;
                 }
             }
+    }
     return n < max ? n : max;
 }
 
