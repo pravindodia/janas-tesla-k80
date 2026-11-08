@@ -192,8 +192,22 @@ static void examine(VkPhysicalDevice pd, int index, struct dev *d)
     }
     printf("  Vulkan 1.3 or later: %s\n", yes(v >= VK_API_VERSION_1_3));
     if (v < VK_API_VERSION_1_3) {
-        snprintf(d->why, sizeof(d->why), "its driver offers Vulkan below 1.3");
-        printf("  Janas-LLM would not take it: %s\n", d->why);
+        /* Do not query Vulkan 1.3 feature/property structures on a 1.2
+           implementation. Report this as a compatibility candidate instead:
+           the production engine still rejects it until a separate 1.2
+           backend and its shader set have been implemented. */
+        if (v >= VK_API_VERSION_1_2) {
+            snprintf(d->why, sizeof(d->why),
+                     "Vulkan 1.2 candidate only; Janas GPU backend still "
+                     "requires 1.3 (K80 compatibility work is incomplete)");
+            printf("  Vulkan 1.2 compatibility candidate: yes\n");
+            printf("  Existing Janas GPU backend: not supported yet\n");
+        } else {
+            snprintf(d->why, sizeof(d->why),
+                     "its driver offers Vulkan below 1.2");
+            printf("  Vulkan 1.2 compatibility candidate: NO\n");
+        }
+        printf("  Janas-LLM current decision: %s\n", d->why);
         return;
     }
     uint32_t ne = 0;
