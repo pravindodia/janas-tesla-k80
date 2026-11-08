@@ -246,8 +246,8 @@ static void examine(VkPhysicalDevice pd, int index, struct dev *d)
                     compute_queue = 1;
 
             snprintf(d->why, sizeof(d->why),
-                     "Vulkan 1.2 candidate only; production backend still "
-                     "requires Vulkan 1.3");
+                     "Vulkan 1.2 Q4_K-only runtime candidate; numerical "
+                     "self-check required");
             printf("  Vulkan 1.2 compatibility candidate: yes\n");
             printf("  driver: %s %s\n", p12.driverName, p12.driverInfo);
             printf("  buffer device address: %s\n", yes(d->bda));
