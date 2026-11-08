@@ -318,6 +318,7 @@ struct janas_gpu {
     /* gpu_fma.c: shaders with float64 (shaderFloat64), and the _xfma
        variants taken because this driver splits fma() */
     int has_f64, xfma;
+    int compat12; /* restricted Vulkan 1.2 path: Q4_K, one vector only */
 };
 
 /* The products checked against the CPU's when the GPU opens, and the
